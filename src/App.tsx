@@ -12,8 +12,9 @@ import { type SelectionSettings, selectWaypoints } from "./lib/waypoints";
 const DEVIATION_CAP = 250;
 
 interface Routed extends RouteResult {
-  /** The waypoints the route was computed from. */
+  /** The waypoints and profile the route was computed from. */
   waypoints: LngLat[];
+  profile: Profile;
 }
 
 function sameCoords(a: LngLat[], b: LngLat[]): boolean {
@@ -64,7 +65,7 @@ export default function App() {
 
   const stale = createMemo(() => {
     const r = routed();
-    return !!r && !sameCoords(r.waypoints, waypoints());
+    return !!r && (r.profile !== profile() || !sameCoords(r.waypoints, waypoints()));
   });
 
   const devs = createMemo(() => {
@@ -91,9 +92,12 @@ export default function App() {
     return t && d ? offRouteShare(t.dist, d, tolerance()) : null;
   });
 
+  let routeAbort: AbortController | undefined;
+
   async function loadFile(file: File) {
     try {
       const gpx = parseGpx(await file.text());
+      routeAbort?.abort();
       batch(() => {
         setTrack(makeTrack(gpx.name || file.name.replace(/\.gpx$/i, ""), gpx.coords));
         setRouted(null);
@@ -106,17 +110,16 @@ export default function App() {
     }
   }
 
-  let routeAbort: AbortController | undefined;
-
   async function testRouting() {
     routeAbort?.abort();
     routeAbort = new AbortController();
     const wps = waypoints();
+    const p = profile();
     setRouting(true);
     setRouteError("");
     try {
-      const result = await fetchRoute(profile(), wps, routeAbort.signal);
-      setRouted({ ...result, waypoints: wps });
+      const result = await fetchRoute(p, wps, routeAbort.signal);
+      setRouted({ ...result, waypoints: wps, profile: p });
     } catch (e) {
       if ((e as Error).name !== "AbortError") setRouteError((e as Error).message);
     } finally {
