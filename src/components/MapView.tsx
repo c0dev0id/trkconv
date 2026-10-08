@@ -1,0 +1,209 @@
+import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import type { FeatureCollection, GeoJsonProperties } from "geojson";
+import {
+  type GeoJSONSource,
+  LngLatBounds,
+  Map as MapLibreMap,
+  NavigationControl,
+  ScaleControl,
+  type StyleSpecification,
+  setWorkerUrl,
+} from "maplibre-gl";
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
+import "maplibre-gl/dist/maplibre-gl.css";
+import type { LngLat, Track } from "../lib/geo";
+
+export type Basemap = "topplus" | "satellite";
+
+export interface MapViewProps {
+  basemap: Basemap;
+  track: Track | null;
+  waypoints: LngLat[];
+  route: LngLat[] | null;
+  routeStale: boolean;
+  /** Route parts beyond the tolerance from the track. */
+  detours: LngLat[][];
+  /** Per track point deviation from the route in metres, if routed. */
+  deviations: number[] | null;
+  tolerance: number;
+}
+
+// MapLibre locates its worker relative to its own module, which does not
+// survive bundling. Vite emits the worker as an asset and provides its URL.
+setWorkerUrl(workerUrl);
+
+const STYLE: StyleSpecification = {
+  version: 8,
+  sources: {
+    topplus: {
+      type: "raster",
+      tiles: [
+        "https://sgx.geodatenzentrum.de/wmts_topplus_open/tile/1.0.0/web_scale/default/WEBMERCATOR/{z}/{y}/{x}.png",
+      ],
+      tileSize: 256,
+      maxzoom: 18,
+      attribution: `&copy; <a href="https://www.bkg.bund.de">BKG</a> (${new Date().getFullYear()}) <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, <a href="https://sg.geodatenzentrum.de/web_public/Datenquellen_TopPlus_Open.pdf">Datenquellen</a>`,
+    },
+    satellite: {
+      type: "raster",
+      tiles: [
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      ],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: "Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+    },
+  },
+  layers: [
+    { id: "topplus", type: "raster", source: "topplus" },
+    { id: "satellite", type: "raster", source: "satellite", layout: { visibility: "none" } },
+  ],
+};
+
+const ROUTING_ATTRIBUTION =
+  'Routing <a href="https://routing.openstreetmap.de">FOSSGIS OSRM</a>, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
+const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
+
+function lines(parts: LngLat[][]): FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: parts
+      .filter((coords) => coords.length > 1)
+      .map((coords) => ({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } })),
+  };
+}
+
+function points(coords: LngLat[], props: (i: number) => GeoJsonProperties): FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: coords.map((c, i) => ({
+      type: "Feature",
+      properties: props(i),
+      geometry: { type: "Point", coordinates: c },
+    })),
+  };
+}
+
+export default function MapView(props: MapViewProps) {
+  let container!: HTMLDivElement;
+  let map: MapLibreMap | undefined;
+  const [ready, setReady] = createSignal(false);
+
+  const source = (id: string) => map!.getSource(id) as GeoJSONSource;
+
+  onMount(() => {
+    map = new MapLibreMap({ container, style: STYLE, center: [10.4, 51.2], zoom: 5 });
+    map.addControl(new NavigationControl(), "top-right");
+    map.addControl(new ScaleControl({ unit: "metric" }), "bottom-right");
+    map.on("load", () => {
+      for (const id of ["track", "trackpoints", "route", "detours", "waypoints"]) {
+        map!.addSource(id, {
+          type: "geojson",
+          data: EMPTY,
+          attribution: id === "route" ? ROUTING_ATTRIBUTION : undefined,
+        });
+      }
+      map!.addLayer({
+        id: "track",
+        type: "line",
+        source: "track",
+        paint: { "line-color": "#1d4ed8", "line-width": 2, "line-opacity": 0.6 },
+      });
+      map!.addLayer({
+        id: "trackpoints",
+        type: "circle",
+        source: "trackpoints",
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 1.5, 16, 3.5],
+          "circle-color": "#1d4ed8",
+        },
+      });
+      map!.addLayer({
+        id: "route",
+        type: "line",
+        source: "route",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": "#9333ea", "line-width": 4, "line-opacity": 0.8 },
+      });
+      map!.addLayer({
+        id: "detours",
+        type: "line",
+        source: "detours",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": "#ef4444", "line-width": 5 },
+      });
+      map!.addLayer({
+        id: "waypoints",
+        type: "circle",
+        source: "waypoints",
+        paint: {
+          "circle-radius": 6,
+          "circle-color": ["match", ["get", "role"], "start", "#16a34a", "end", "#dc2626", "#f59e0b"],
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 2,
+        },
+      });
+      setReady(true);
+    });
+  });
+
+  onCleanup(() => map?.remove());
+
+  createEffect(() => {
+    if (!ready()) return;
+    const satellite = props.basemap === "satellite";
+    map!.setLayoutProperty("satellite", "visibility", satellite ? "visible" : "none");
+    map!.setLayoutProperty("topplus", "visibility", satellite ? "none" : "visible");
+  });
+
+  createEffect(() => {
+    if (!ready()) return;
+    const track = props.track;
+    source("track").setData(lines(track ? [track.coords] : []));
+    if (!track) return;
+    const bounds = new LngLatBounds();
+    for (const c of track.coords) bounds.extend(c);
+    map!.fitBounds(bounds, { padding: 40, duration: 0 });
+  });
+
+  createEffect(() => {
+    if (!ready()) return;
+    const coords = props.track?.coords ?? [];
+    const dev = props.deviations;
+    source("trackpoints").setData(points(coords, (i) => ({ dev: dev ? dev[i] : 0 })));
+  });
+
+  createEffect(() => {
+    if (!ready()) return;
+    map!.setPaintProperty("trackpoints", "circle-color", [
+      "case",
+      [">", ["get", "dev"], props.tolerance],
+      "#ef4444",
+      "#1d4ed8",
+    ]);
+  });
+
+  createEffect(() => {
+    if (!ready()) return;
+    const wps = props.waypoints;
+    const last = wps.length - 1;
+    source("waypoints").setData(
+      points(wps, (i) => ({ role: i === 0 ? "start" : i === last ? "end" : "via" })),
+    );
+  });
+
+  createEffect(() => {
+    if (!ready()) return;
+    source("route").setData(lines(props.route ? [props.route] : []));
+    map!.setPaintProperty("route", "line-dasharray", props.routeStale ? [1, 1.5] : [1, 0]);
+    map!.setPaintProperty("route", "line-opacity", props.routeStale ? 0.5 : 0.8);
+  });
+
+  createEffect(() => {
+    if (!ready()) return;
+    source("detours").setData(lines(props.detours));
+  });
+
+  return <div ref={container} class="map" />;
+}
