@@ -52,3 +52,24 @@ export function offRouteShare(dist: number[], dev: number[], tolerance: number):
   }
   return off / total;
 }
+
+/**
+ * Splits a line into runs of consecutive segments with at least one endpoint
+ * deviating more than tolerance. "Either endpoint" catches spurs whose only
+ * off-track vertex is the tip. Used to highlight route detours.
+ */
+export function offRuns<T>(coords: T[], dev: number[], tolerance: number): T[][] {
+  const runs: T[][] = [];
+  let run: T[] = [];
+  for (let i = 0; i < coords.length - 1; i++) {
+    if (dev[i] > tolerance || dev[i + 1] > tolerance) {
+      if (run.length === 0) run.push(coords[i]);
+      run.push(coords[i + 1]);
+    } else if (run.length) {
+      runs.push(run);
+      run = [];
+    }
+  }
+  if (run.length) runs.push(run);
+  return runs;
+}

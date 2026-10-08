@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deviations, offRouteShare } from "../src/lib/deviation";
+import { deviations, offRouteShare, offRuns } from "../src/lib/deviation";
 import type { LngLat } from "../src/lib/geo";
 
 describe("deviations", () => {
@@ -33,5 +33,20 @@ describe("offRouteShare", () => {
   });
   it("is zero for an empty track", () => {
     expect(offRouteShare([0], [0], 25)).toBe(0);
+  });
+});
+
+describe("offRuns", () => {
+  it("returns the segments touching an off point", () => {
+    expect(offRuns(["a", "b", "c", "d", "e", "f", "g"], [0, 50, 50, 0, 0, 50, 0], 25)).toEqual([
+      ["a", "b", "c", "d"],
+      ["e", "f", "g"],
+    ]);
+  });
+  it("catches a spur with a single off vertex", () => {
+    expect(offRuns(["a", "b", "a"], [0, 50, 0], 25)).toEqual([["a", "b", "a"]]);
+  });
+  it("returns nothing when everything is within tolerance", () => {
+    expect(offRuns(["a", "b"], [0, 10], 25)).toEqual([]);
   });
 });
