@@ -104,7 +104,8 @@ export default function MapView(props: MapViewProps) {
     map = new MapLibreMap({ container, style: STYLE, center: [10.4, 51.2], zoom: 5 });
     map.addControl(new NavigationControl(), "top-right");
     map.addControl(new ScaleControl({ unit: "metric" }), "bottom-right");
-    map.on("load", () => {
+    // "style.load" fires as soon as layers can be added; "load" would also wait for all tiles.
+    map.once("style.load", () => {
       for (const id of ["track", "trackpoints", "route", "detours", "waypoints"]) {
         map!.addSource(id, {
           type: "geojson",
