@@ -28,6 +28,13 @@ waypoints as a GPX route.
   detection, then minimum gap, then maximum gap, then shift. Gap filling
   runs after thinning so an explicit maximum gap is always honoured.
   Endpoints are fixed; shifted points that pass an endpoint are dropped.
+- **Waypoint attribution**: every selected point records which step picked
+  it (endpoint, Douglas-Peucker, corner, gap filler). Points dropped by the
+  minimum gap are kept in the selection with a `removed` flag so the map
+  can show them faded; only non-removed points are routed and exported.
+  Douglas-Peucker's implicit endpoints are attributed to "endpoint" only.
+  Only Douglas-Peucker and corner detection can pick the same track point,
+  so one fill colour plus one ring colour is enough to show both.
 - **Corner detection** measures the heading change between the positions
   one window before and after each point, which suppresses GPS jitter
   better than the angle between adjacent points. Clusters of candidates are
@@ -45,6 +52,8 @@ waypoints as a GPX route.
 - **MapLibre worker**: MapLibre 6 resolves its worker relative to its own
   module, which breaks after bundling. The worker is imported with Vite's
   `?url` suffix and passed to `setWorkerUrl`.
+- **Map layers are added on `style.load`**, not `load`, which would wait
+  for every initial tile and delay showing a loaded track.
 - **Vite base `./`** so the build works under any Pages sub-path.
 
 ## Core features
@@ -53,7 +62,8 @@ waypoints as a GPX route.
   route points).
 - Toggle between TopPlusOpen (Upscale) and Esri satellite imagery.
 - Sliders for Douglas-Peucker tolerance, corner angle and window, minimum
-  and maximum waypoint gap.
+  and maximum waypoint gap, each with a colour swatch matching the markers
+  it produces. Track points stay visible as small dots underneath.
 - Test routing with OSRM (car, bike, foot); stale routes are dashed.
 - Shift all intermediate waypoints along the track.
 - Deviation tolerance slider with red highlighting and off-route share.
