@@ -12,13 +12,21 @@ import {
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { LngLat, Track } from "../lib/geo";
+import type { Source } from "../lib/waypoints";
+import { DEVIATION_COLOR, SOURCE_COLORS } from "./colors";
 
 export type Basemap = "topplus" | "satellite";
+
+export interface Marker {
+  coord: LngLat;
+  sources: Source[];
+  removed: boolean;
+}
 
 export interface MapViewProps {
   basemap: Basemap;
   track: Track | null;
-  waypoints: LngLat[];
+  waypoints: Marker[];
   route: LngLat[] | null;
   routeStale: boolean;
   /** Route parts beyond the tolerance from the track. */
@@ -131,7 +139,7 @@ export default function MapView(props: MapViewProps) {
         type: "line",
         source: "detours",
         layout: { "line-join": "round", "line-cap": "round" },
-        paint: { "line-color": "#ef4444", "line-width": 5 },
+        paint: { "line-color": DEVIATION_COLOR, "line-width": 5 },
       });
       map!.addLayer({
         id: "waypoints",
@@ -139,9 +147,11 @@ export default function MapView(props: MapViewProps) {
         source: "waypoints",
         paint: {
           "circle-radius": 6,
-          "circle-color": ["match", ["get", "role"], "start", "#16a34a", "end", "#dc2626", "#f59e0b"],
-          "circle-stroke-color": "#ffffff",
-          "circle-stroke-width": 2,
+          "circle-color": ["get", "fill"],
+          "circle-stroke-color": ["get", "ring"],
+          "circle-stroke-width": ["get", "ringWidth"],
+          "circle-opacity": ["case", ["get", "removed"], 0.35, 1],
+          "circle-stroke-opacity": ["case", ["get", "removed"], 0.35, 1],
         },
       });
       setReady(true);
@@ -179,17 +189,29 @@ export default function MapView(props: MapViewProps) {
     map!.setPaintProperty("trackpoints", "circle-color", [
       "case",
       [">", ["get", "dev"], props.tolerance],
-      "#ef4444",
+      DEVIATION_COLOR,
       "#1d4ed8",
     ]);
   });
 
   createEffect(() => {
     if (!ready()) return;
-    const wps = props.waypoints;
-    const last = wps.length - 1;
+    // Removed markers first so active ones are drawn on top.
+    const markers = [...props.waypoints].sort((a, b) => Number(b.removed) - Number(a.removed));
     source("waypoints").setData(
-      points(wps, (i) => ({ role: i === 0 ? "start" : i === last ? "end" : "via" })),
+      points(
+        markers.map((m) => m.coord),
+        (i) => {
+          const [first, second] = markers[i].sources;
+          return {
+            fill: SOURCE_COLORS[first],
+            // A second source is shown as a ring around the first.
+            ring: second ? SOURCE_COLORS[second] : "#ffffff",
+            ringWidth: second ? 3 : 1.5,
+            removed: markers[i].removed,
+          };
+        },
+      ),
     );
   });
 

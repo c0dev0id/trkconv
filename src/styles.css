@@ -103,6 +103,26 @@ fieldset:disabled {
   justify-content: space-between;
 }
 
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 50%;
+}
+
+.swatch.muted {
+  opacity: 0.4;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+}
+
 .slider input {
   width: 100%;
 }

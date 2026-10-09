@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type LngLat, type XY, cumulativeDistances, makeTrack, projectAll } from "../src/lib/geo";
-import { detectCorners, fillGaps, mergeClose, rdp, selectWaypoints, shiftAlong } from "../src/lib/waypoints";
+import { type Waypoint, activeDistances, detectCorners, gapFillers, minGapMask, rdp, selectWaypoints, shiftAlong } from "../src/lib/waypoints";
 
 /** Distances along a planar polyline. */
 function planarDist(xy: XY[]): number[] {
@@ -51,36 +51,49 @@ describe("detectCorners", () => {
   });
 });
 
-describe("mergeClose", () => {
+describe("minGapMask", () => {
   it("drops points closer than minGap and keeps endpoints", () => {
-    expect(mergeClose([0, 10, 50, 55, 100], 20)).toEqual([0, 50, 100]);
+    expect(minGapMask([0, 10, 50, 55, 100], 20)).toEqual([true, false, true, false, true]);
+  });
+  it("measures from the last kept point, not the last dropped one", () => {
+    expect(minGapMask([0, 15, 25, 100], 20)).toEqual([true, false, true, true]);
   });
   it("drops inner points too close to the end", () => {
-    expect(mergeClose([0, 50, 95, 100], 20)).toEqual([0, 50, 100]);
+    expect(minGapMask([0, 50, 95, 100], 20)).toEqual([true, true, false, true]);
   });
-  it("is a no-op when disabled", () => {
-    expect(mergeClose([0, 1, 2], 0)).toEqual([0, 1, 2]);
+  it("keeps everything when disabled", () => {
+    expect(minGapMask([0, 1, 2], 0)).toEqual([true, true, true]);
   });
 });
 
-describe("fillGaps", () => {
+describe("gapFillers", () => {
   it("splits long gaps evenly", () => {
-    expect(fillGaps([0, 300], 100)).toEqual([0, 100, 200, 300]);
-    expect(fillGaps([0, 250], 100)).toEqual([0, 250 / 3, 500 / 3, 250]);
+    expect(gapFillers([0, 300], 100)).toEqual([100, 200]);
+    expect(gapFillers([0, 250], 100)).toEqual([250 / 3, 500 / 3]);
   });
   it("leaves short gaps alone", () => {
-    expect(fillGaps([0, 80, 160], 100)).toEqual([0, 80, 160]);
+    expect(gapFillers([0, 80, 160], 100)).toEqual([]);
+  });
+  it("is empty when disabled", () => {
+    expect(gapFillers([0, 1000], 0)).toEqual([]);
   });
 });
 
 describe("shiftAlong", () => {
+  const wp = (d: number, source: Waypoint["sources"][number] = "rdp"): Waypoint => ({ d, sources: [source], removed: false });
+  const wps = [wp(0, "endpoint"), wp(40), wp(60, "gap"), wp(100, "endpoint")];
+  const ds = (list: Waypoint[]) => list.map((w) => w.d);
+
   it("moves inner points and keeps endpoints", () => {
-    expect(shiftAlong([0, 40, 60, 100], 10, 100)).toEqual([0, 50, 70, 100]);
-    expect(shiftAlong([0, 40, 60, 100], -10, 100)).toEqual([0, 30, 50, 100]);
+    expect(ds(shiftAlong(wps, 10, 100))).toEqual([0, 50, 70, 100]);
+    expect(ds(shiftAlong(wps, -10, 100))).toEqual([0, 30, 50, 100]);
   });
   it("drops points pushed past an endpoint", () => {
-    expect(shiftAlong([0, 40, 60, 100], 50, 100)).toEqual([0, 90, 100]);
-    expect(shiftAlong([0, 40, 60, 100], -40, 100)).toEqual([0, 20, 100]);
+    expect(ds(shiftAlong(wps, 50, 100))).toEqual([0, 90, 100]);
+    expect(ds(shiftAlong(wps, -40, 100))).toEqual([0, 20, 100]);
+  });
+  it("keeps the sources of moved points", () => {
+    expect(shiftAlong(wps, 10, 100)[2].sources).toEqual(["gap"]);
   });
 });
 
@@ -92,24 +105,47 @@ describe("selectWaypoints", () => {
   ];
   const track = makeTrack("t", coords);
   const xy = projectAll(coords);
+  const total = track.dist[200];
+  const corner = track.dist[100];
   const base = { rdpTolerance: 0, cornerAngle: 0, cornerWindow: 30, minGap: 0, maxGap: 0, shift: 0 };
+  const select = (s: Partial<typeof base>) => selectWaypoints(track, xy, { ...base, ...s });
 
   it("returns only the endpoints with everything disabled", () => {
-    expect(selectWaypoints(track, xy, base)).toEqual([0, track.dist[200]]);
+    expect(select({})).toEqual([
+      { d: 0, sources: ["endpoint"], removed: false },
+      { d: total, sources: ["endpoint"], removed: false },
+    ]);
   });
-  it("adds the corner via corner detection", () => {
-    expect(selectWaypoints(track, xy, { ...base, cornerAngle: 45 })).toEqual([0, track.dist[100], track.dist[200]]);
+  it("attributes the corner to corner detection", () => {
+    expect(select({ cornerAngle: 45 })[1]).toEqual({ d: corner, sources: ["corner"], removed: false });
   });
-  it("adds the corner via Douglas-Peucker", () => {
-    expect(selectWaypoints(track, xy, { ...base, rdpTolerance: 20 })).toEqual([0, track.dist[100], track.dist[200]]);
+  it("attributes the corner to Douglas-Peucker without claiming the endpoints", () => {
+    const wps = select({ rdpTolerance: 20 });
+    expect(wps.map((w) => w.sources)).toEqual([["endpoint"], ["rdp"], ["endpoint"]]);
+  });
+  it("lists both sources when both methods pick the same point", () => {
+    expect(select({ rdpTolerance: 20, cornerAngle: 45 })[1].sources).toEqual(["rdp", "corner"]);
+  });
+  it("marks points within the minimum gap as removed instead of dropping them", () => {
+    const wps = select({ cornerAngle: 45, minGap: total });
+    expect(wps.map((w) => w.removed)).toEqual([false, true, false]);
+    expect(activeDistances(wps)).toEqual([0, total]);
+  });
+  it("fills gaps between kept points only and attributes the fillers", () => {
+    // The east leg is ~1.56 km, so the filler at half the length precedes the corner.
+    const wps = select({ cornerAngle: 45, minGap: total, maxGap: total / 2 });
+    expect(wps.map((w) => [w.sources[0], w.removed])).toEqual([
+      ["endpoint", false],
+      ["gap", false],
+      ["corner", true],
+      ["endpoint", false],
+    ]);
   });
   it("applies the shift after filling gaps", () => {
-    const total = track.dist[200];
-    const ds = selectWaypoints(track, xy, { ...base, maxGap: total / 2, shift: 5 });
-    expect(ds).toEqual([0, total / 2 + 5, total]);
+    expect(activeDistances(select({ maxGap: total / 2, shift: 5 }))).toEqual([0, total / 2 + 5, total]);
   });
-  it("produces strictly increasing distances", () => {
-    const ds = selectWaypoints(track, xy, { ...base, rdpTolerance: 5, cornerAngle: 30, minGap: 25, maxGap: 300, shift: -15 });
+  it("produces strictly increasing active distances", () => {
+    const ds = activeDistances(select({ rdpTolerance: 5, cornerAngle: 30, minGap: 25, maxGap: 300, shift: -15 }));
     for (let i = 1; i < ds.length; i++) expect(ds[i]).toBeGreaterThan(ds[i - 1]);
   });
   it("matches cumulativeDistances for the track length", () => {

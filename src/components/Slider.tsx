@@ -8,6 +8,10 @@ export interface SliderProps {
   step: number;
   unit: string;
   value: number;
+  /** Swatch colour linking the slider to what it draws on the map. */
+  color?: string;
+  /** Draw the swatch faded, matching muted markers. */
+  muted?: boolean;
   /** Display "off" instead of 0. */
   offAtZero?: boolean;
   onInput: (value: number) => void;
@@ -17,7 +21,12 @@ export default function Slider(props: SliderProps) {
   return (
     <label class="slider" title={props.hint}>
       <span class="slider-head">
-        <span>{props.label}</span>
+        <span>
+          <Show when={props.color}>
+            <span class="swatch" classList={{ muted: props.muted }} style={{ background: props.color }} />
+          </Show>
+          {props.label}
+        </span>
         <output>
           <Show when={!(props.offAtZero && props.value === 0)} fallback="off">
             {props.value} {props.unit}

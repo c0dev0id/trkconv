@@ -1,12 +1,13 @@
 import { For, Show, batch, createMemo, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
-import MapView, { type Basemap } from "./components/MapView";
+import MapView, { type Basemap, type Marker } from "./components/MapView";
+import { DEVIATION_COLOR, REMOVED_COLOR, SOURCE_COLORS } from "./components/colors";
 import Slider from "./components/Slider";
 import { deviations, offRouteShare, offRuns } from "./lib/deviation";
 import { type LngLat, type Track, makeTrack, pointAtDistance, projectAll, trackLength } from "./lib/geo";
 import { parseGpx, routeToGpx } from "./lib/gpx";
 import { MAX_WAYPOINTS, PROFILES, type Profile, type RouteResult, fetchRoute } from "./lib/osrm";
-import { type SelectionSettings, selectWaypoints } from "./lib/waypoints";
+import { type SelectionSettings, activeDistances, selectWaypoints } from "./lib/waypoints";
 
 /** Deviations beyond this are not measured exactly; must exceed the tolerance slider maximum. */
 const DEVIATION_CAP = 250;
@@ -57,11 +58,25 @@ export default function App() {
     return t ? projectAll(t.coords) : [];
   });
 
-  const waypoints = createMemo<LngLat[]>(() => {
+  /** All selected points, including those removed by the minimum gap. */
+  const selection = createMemo(() => {
+    const t = track();
+    return t ? selectWaypoints(t, projected(), { ...settings }) : [];
+  });
+
+  const markers = createMemo<Marker[]>(() => {
     const t = track();
     if (!t) return [];
-    return selectWaypoints(t, projected(), { ...settings }).map((d) => pointAtDistance(t, d));
+    return selection().map((w) => ({ coord: pointAtDistance(t, w.d), sources: w.sources, removed: w.removed }));
   });
+
+  /** The waypoints that are routed and exported. */
+  const waypoints = createMemo<LngLat[]>(() => {
+    const t = track();
+    return t ? activeDistances(selection()).map((d) => pointAtDistance(t, d)) : [];
+  });
+
+  const removedCount = createMemo(() => selection().filter((w) => w.removed).length);
 
   const stale = createMemo(() => {
     const r = routed();
@@ -194,8 +209,16 @@ export default function App() {
         <fieldset disabled={!track()}>
           <section>
             <h2>Waypoints</h2>
+            <p class="legend">
+              <span>
+                <span class="swatch" style={{ background: SOURCE_COLORS.endpoint }} />
+                start / end
+              </span>
+              <span class="hint">A ring marks a point picked by two methods.</span>
+            </p>
             <Slider
               label="Douglas-Peucker tolerance"
+              color={SOURCE_COLORS.rdp}
               hint="Keeps points deviating more than this from the simplified line."
               min={0} max={200} step={1} unit="m" offAtZero
               value={settings.rdpTolerance}
@@ -203,6 +226,7 @@ export default function App() {
             />
             <Slider
               label="Corner angle"
+              color={SOURCE_COLORS.corner}
               hint="Heading change that marks a corner."
               min={0} max={180} step={1} unit="°" offAtZero
               value={settings.cornerAngle}
@@ -210,6 +234,7 @@ export default function App() {
             />
             <Slider
               label="Corner window"
+              color={SOURCE_COLORS.corner}
               hint="Heading is measured this far before and after each point."
               min={5} max={200} step={5} unit="m"
               value={settings.cornerWindow}
@@ -217,13 +242,16 @@ export default function App() {
             />
             <Slider
               label="Minimum gap"
-              hint="Drops waypoints closer than this to the previous one."
+              color={REMOVED_COLOR}
+              muted
+              hint="Drops waypoints closer than this to the previous one. Dropped points stay visible, faded."
               min={0} max={1000} step={10} unit="m" offAtZero
               value={settings.minGap}
               onInput={(v) => setSettings("minGap", v)}
             />
             <Slider
               label="Maximum gap"
+              color={SOURCE_COLORS.gap}
               hint="Inserts waypoints so no gap is longer than this."
               min={0} max={20000} step={250} unit="m" offAtZero
               value={settings.maxGap}
@@ -231,6 +259,7 @@ export default function App() {
             />
             <p class="stats" classList={{ error: waypoints().length > MAX_WAYPOINTS }}>
               {waypoints().length} waypoints
+              {removedCount() ? ` · ${removedCount()} removed by minimum gap` : ""}
               {waypoints().length > MAX_WAYPOINTS ? ` (server limit ${MAX_WAYPOINTS})` : ""}
             </p>
           </section>
@@ -257,6 +286,7 @@ export default function App() {
             />
             <Slider
               label="Deviation tolerance"
+              color={DEVIATION_COLOR}
               hint="Track points farther than this from the route, and route parts farther than this from the track, are shown in red."
               min={5} max={200} step={5} unit="m"
               value={tolerance()}
@@ -288,7 +318,7 @@ export default function App() {
       <MapView
         basemap={basemap()}
         track={track()}
-        waypoints={waypoints()}
+        waypoints={markers()}
         route={routed()?.coords ?? null}
         routeStale={stale()}
         detours={detours()}
