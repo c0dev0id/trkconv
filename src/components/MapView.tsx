@@ -6,7 +6,6 @@ import {
   Map as MapLibreMap,
   NavigationControl,
   ScaleControl,
-  type StyleSpecification,
   setWorkerUrl,
 } from "maplibre-gl";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
@@ -15,8 +14,6 @@ import type { LngLat, Track } from "../lib/geo";
 import type { Source } from "../lib/waypoints";
 import { DEVIATION_COLOR, SOURCE_COLORS } from "./colors";
 
-export type Basemap = "topplus" | "satellite";
-
 export interface Marker {
   coord: LngLat;
   sources: Source[];
@@ -24,7 +21,6 @@ export interface Marker {
 }
 
 export interface MapViewProps {
-  basemap: Basemap;
   track: Track | null;
   waypoints: Marker[];
   route: LngLat[] | null;
@@ -40,36 +36,10 @@ export interface MapViewProps {
 // survive bundling. Vite emits the worker as an asset and provides its URL.
 setWorkerUrl(workerUrl);
 
-const STYLE: StyleSpecification = {
-  version: 8,
-  sources: {
-    topplus: {
-      type: "raster",
-      tiles: [
-        "https://sgx.geodatenzentrum.de/wmts_topplus_open/tile/1.0.0/web_scale/default/WEBMERCATOR/{z}/{y}/{x}.png",
-      ],
-      tileSize: 256,
-      maxzoom: 18,
-      attribution: `&copy; <a href="https://www.bkg.bund.de">BKG</a> (${new Date().getFullYear()}) <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, <a href="https://sg.geodatenzentrum.de/web_public/Datenquellen_TopPlus_Open.pdf">Datenquellen</a>`,
-    },
-    satellite: {
-      type: "raster",
-      tiles: [
-        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      ],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: "Esri, Maxar, Earthstar Geographics, and the GIS User Community",
-    },
-  },
-  layers: [
-    { id: "topplus", type: "raster", source: "topplus" },
-    { id: "satellite", type: "raster", source: "satellite", layout: { visibility: "none" } },
-  ],
-};
+const STYLE_URL = "https://tiles.openfreemap.org/styles/positron";
 
-const ROUTING_ATTRIBUTION =
-  'Routing <a href="https://routing.openstreetmap.de">FOSSGIS OSRM</a>, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+// The basemap style already credits OpenStreetMap.
+const ROUTING_ATTRIBUTION = 'Routing <a href="https://routing.openstreetmap.de">FOSSGIS OSRM</a>';
 
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 
@@ -101,7 +71,7 @@ export default function MapView(props: MapViewProps) {
   const source = (id: string) => map!.getSource(id) as GeoJSONSource;
 
   onMount(() => {
-    map = new MapLibreMap({ container, style: STYLE, center: [10.4, 51.2], zoom: 5 });
+    map = new MapLibreMap({ container, style: STYLE_URL, center: [10.4, 51.2], zoom: 5 });
     map.addControl(new NavigationControl(), "top-right");
     map.addControl(new ScaleControl({ unit: "metric" }), "bottom-right");
     // "style.load" fires as soon as layers can be added; "load" would also wait for all tiles.
@@ -160,13 +130,6 @@ export default function MapView(props: MapViewProps) {
   });
 
   onCleanup(() => map?.remove());
-
-  createEffect(() => {
-    if (!ready()) return;
-    const satellite = props.basemap === "satellite";
-    map!.setLayoutProperty("satellite", "visibility", satellite ? "visible" : "none");
-    map!.setLayoutProperty("topplus", "visibility", satellite ? "none" : "visible");
-  });
 
   createEffect(() => {
     if (!ready()) return;

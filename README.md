@@ -24,8 +24,7 @@ router (OSRM) on the map before exporting.
 
 ## Services
 
-- Basemaps: [TopPlusOpen](https://gdz.bkg.bund.de/index.php/default/wmts-topplusopen-wmts-topplus-open.html)
-  (BKG, layer `web_scale`) and Esri World Imagery.
+- Basemap: [OpenFreeMap](https://openfreemap.org) Positron.
 - Routing: public OSRM instances of [FOSSGIS](https://routing.openstreetmap.de)
   (car, bike, foot), limited to 500 waypoints per request.
 

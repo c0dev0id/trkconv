@@ -13,8 +13,8 @@ waypoints as a GPX route.
 ## Software stack
 
 - SolidJS 1.9 with TypeScript, built with Vite.
-- MapLibre GL JS 6 for the map; raster basemaps only (no vector style or
-  glyphs).
+- MapLibre GL JS 6 for the map with the OpenFreeMap Positron vector style
+  as the only basemap.
 - Vitest for unit tests of the framework-free modules in `src/lib`
   (happy-dom only where DOMParser is needed).
 - GitHub Actions deploys `dist/` to GitHub Pages.
@@ -52,6 +52,9 @@ waypoints as a GPX route.
 - **MapLibre worker**: MapLibre 6 resolves its worker relative to its own
   module, which breaks after bundling. The worker is imported with Vite's
   `?url` suffix and passed to `setWorkerUrl`.
+- **Basemap**: OpenFreeMap Positron replaced the earlier TopPlusOpen and
+  Esri satellite toggle. Its muted greys keep the coloured track, waypoint
+  and route layers readable, and it needs no API key.
 - **Map layers are added on `style.load`**, not `load`, which would wait
   for every initial tile and delay showing a loaded track.
 - **Vite base `./`** so the build works under any Pages sub-path.
@@ -60,7 +63,7 @@ waypoints as a GPX route.
 
 - Load GPX via file picker or drag and drop (track points, falling back to
   route points).
-- Toggle between TopPlusOpen (Upscale) and Esri satellite imagery.
+- OpenFreeMap Positron basemap.
 - Sliders for Douglas-Peucker tolerance, corner angle and window, minimum
   and maximum waypoint gap, each with a colour swatch matching the markers
   it produces. Track points stay visible as small dots underneath.

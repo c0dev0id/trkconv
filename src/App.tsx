@@ -1,6 +1,6 @@
 import { For, Show, batch, createMemo, createSignal } from "solid-js";
 import { createStore } from "solid-js/store";
-import MapView, { type Basemap, type Marker } from "./components/MapView";
+import MapView, { type Marker } from "./components/MapView";
 import { DEVIATION_COLOR, REMOVED_COLOR, SOURCE_COLORS } from "./components/colors";
 import Slider from "./components/Slider";
 import { deviations, offRouteShare, offRuns } from "./lib/deviation";
@@ -36,7 +36,6 @@ function download(filename: string, content: string) {
 }
 
 export default function App() {
-  const [basemap, setBasemap] = createSignal<Basemap>("topplus");
   const [track, setTrack] = createSignal<Track | null>(null);
   const [loadError, setLoadError] = createSignal("");
   const [settings, setSettings] = createStore<SelectionSettings>({
@@ -187,25 +186,6 @@ export default function App() {
           </Show>
         </section>
 
-        <section>
-          <h2>Basemap</h2>
-          <div class="toggle">
-            <For each={[["topplus", "TopPlusOpen"], ["satellite", "Satellite"]] as const}>
-              {([id, label]) => (
-                <label>
-                  <input
-                    type="radio"
-                    name="basemap"
-                    checked={basemap() === id}
-                    onChange={() => setBasemap(id)}
-                  />
-                  {label}
-                </label>
-              )}
-            </For>
-          </div>
-        </section>
-
         <fieldset disabled={!track()}>
           <section>
             <h2>Waypoints</h2>
@@ -316,7 +296,6 @@ export default function App() {
       </aside>
 
       <MapView
-        basemap={basemap()}
         track={track()}
         waypoints={markers()}
         route={routed()?.coords ?? null}

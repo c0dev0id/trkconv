@@ -86,7 +86,6 @@ fieldset:disabled {
   color: var(--accent);
 }
 
-.toggle,
 .row {
   display: flex;
   gap: 12px;
